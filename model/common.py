@@ -38,89 +38,140 @@ class BaseModel(ABC):
 
 # Lớp BasePytorchModel chứa các hàm hỗ trợ dùng chung cho các mô hình deep learning PyTorch
 class BasePytorchModel(nn.Module, BaseModel):
-    def __init__(self):
+    def __init__(self, optimizer_class: type[optim.Optimizer], optimizer_params=None):
         super(BasePytorchModel, self).__init__()
-    
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.optimizer_class = optimizer_class
+        self.optimizer_params = optimizer_params if optimizer_params is not None else {}
+        self.optimizer = None
+        self.scheduler = None  # Bộ lập lịch learning rate
+        self.last_epoch = 0
+        self.last_loss = 0.0
+        self.trained = False
+        self.to(self.device)
+
+    def init_optimizer(self, lr):
+        if self.optimizer is not None:
+            print("Warning: Overriding existing optimizer.")
+        self.optimizer = self.optimizer_class(self.parameters(), lr=lr, **self.optimizer_params)
+
+    def init_scheduler(self, scheduler_type, scheduler_params):
+        if scheduler_type == "step":
+            self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, **scheduler_params)
+        elif scheduler_type == "cosine":
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, **scheduler_params)
+        elif scheduler_type == "reduce_on_plateau":
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, **scheduler_params)
+        else:
+            self.scheduler = None
+
     @staticmethod
-    def make_loader(X, y, batch_size=32, shuffle=True):
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        y_tensor = torch.tensor(y, dtype=torch.float32)
-        # Nếu y có dạng (L,) thì unsqueeze để có shape (L, 1); nếu y là multi-step (L, ndays) thì giữ nguyên
+    def make_loader(X, y, batch_size=32, shuffle=True, device="cpu"):
+        X_tensor = torch.tensor(X, dtype=torch.float32, device=device)
+        y_tensor = torch.tensor(y, dtype=torch.float32, device=device)
         if y_tensor.ndim == 1:
             y_tensor = y_tensor.unsqueeze(-1)
         dataset = TensorDataset(X_tensor, y_tensor)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
         return loader
+    
+    def save_model(self, file_path="model_checkpoint.pth"):
+        if not self.trained:
+            raise Exception("Model is not trained yet.")
+        torch.save({
+            "model_state_dict": self.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "last_epoch": self.last_epoch,
+            "last_loss": self.last_loss
+        }, file_path)
 
-    def train_model(self, X, y, loss_fn, num_epochs, lr, batch_size=32, X_val=None, y_val=None):
-        """
-        Huấn luyện mô hình với loss function được truyền vào.
+    def load_model(self, file_path="model_checkpoint.pth", set_eval=True):
+        checkpoint = torch.load(file_path, map_location=self.device)
+        self.load_state_dict(checkpoint["model_state_dict"])
+        if self.optimizer is None:
+            self.init_optimizer(lr=1e-4)
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.last_epoch = checkpoint.get("last_epoch", 0)
+        self.last_loss = checkpoint.get("last_loss", 0.0)
+        self.eval() if set_eval else self.train()
+        print(f"Model loaded from {file_path}, starting from epoch {self.last_epoch}, eval mode: {set_eval}")
+
+
+    def train_model(self, X, y, loss_fn, num_epochs, lr, batch_size=32, X_val=None, y_val=None,
+                    use_warmup=False, warmup_epochs=5, scheduler_type=None, scheduler_params=None):
+        train_loader = self.make_loader(X, y, batch_size=batch_size, shuffle=True, device=self.device)
+        self.init_optimizer(lr)
         
-        Parameters:
-          - X, y: Dữ liệu huấn luyện (có thể là cho dự báo 1 ngày hay multi-step).
-          - loss_fn: Hàm loss (ví dụ: nn.MSELoss()).
-          - num_epochs: Số epoch huấn luyện.
-          - lr: Learning rate.
-          - batch_size: Kích thước batch.
-          - X_val, y_val (tuỳ chọn): Dữ liệu validation để tính loss sau mỗi epoch.
-        """
-        train_loader = BasePytorchModel.make_loader(X, y, batch_size=batch_size, shuffle=True)
-        optimizer = optim.Adam(self.parameters(), lr=lr)
+        if use_warmup:
+            warmup_scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.1, total_iters=warmup_epochs)
         
-        for epoch in range(num_epochs):
+        if scheduler_type:
+            self.init_scheduler(scheduler_type, scheduler_params)
+
+        for epoch in range(self.last_epoch + 1, self.last_epoch + num_epochs + 1):
             self.train()
             epoch_loss = 0.0
             for X_batch, y_batch in train_loader:
-                optimizer.zero_grad()
+                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
+                self.optimizer.zero_grad()
                 outputs = self(X_batch)
                 loss = loss_fn(outputs, y_batch)
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
                 epoch_loss += loss.item() * X_batch.size(0)
             epoch_loss /= len(train_loader.dataset)
             
-            # Tính loss trên tập validation nếu có
+            if use_warmup and epoch <= warmup_epochs:
+                warmup_scheduler.step()
+            elif self.scheduler:
+                if scheduler_type == "reduce_on_plateau":
+                    self.scheduler.step(epoch_loss)
+                else:
+                    self.scheduler.step()
+            
             if X_val is not None and y_val is not None:
                 val_loss = self.valid_model(X_val, y_val, loss_fn, batch_size=batch_size)
-                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+                print(f"Epoch {epoch}/{num_epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
             else:
-                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {epoch_loss:.4f}")
-    
+                print(f"Epoch {epoch}/{num_epochs}, Train Loss: {epoch_loss:.4f}")
+            self.last_epoch = epoch
+            self.last_loss = epoch_loss
+        self.trained = True
+
     def valid_model(self, X, y, loss_fn, batch_size=32):
-        """
-        Tính loss trên tập validation (hoặc test) với loss_fn được truyền vào.
-        Đây là phương thức chuyên dùng cho việc đánh giá tập validation.
-        """
-        loader = BasePytorchModel.make_loader(X, y, batch_size=batch_size, shuffle=False)
+        loader = BasePytorchModel.make_loader(X, y, batch_size=batch_size, shuffle=False, device=self.device)
         self.eval()
         total_loss = 0.0
         with torch.no_grad():
             for X_batch, y_batch in loader:
+                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
                 outputs = self(X_batch)
                 loss = loss_fn(outputs, y_batch)
                 total_loss += loss.item() * X_batch.size(0)
         return total_loss / len(loader.dataset)
-    
+
     def predict(self, X, **kwargs):
-        """
-        Dự đoán với mô hình.
-        
-        Parameters:
-          - X: Dữ liệu đầu vào, có dạng (batch_size, seq_len, input_dim).
-          - kwargs: Các tham số khác (ví dụ: fine_tune_data, num_epochs_ft, lr_ft, batch_size).
-        
-        Nếu fine_tune_data được cung cấp, mô hình sẽ được fine-tune trước khi dự đoán.
-        """
         fine_tune_data = kwargs.get("fine_tune_data", None)
         num_epochs_ft = kwargs.get("num_epochs_ft", 5)
         lr_ft = kwargs.get("lr_ft", 1e-4)
-        batch_size = kwargs.get("batch_size", 32)
-        
+        batch_size = kwargs.get("batch_size", 32)  # Đảm bảo batch_size có giá trị hợp lý
+
+        # Fine-tuning nếu có dữ liệu
         if fine_tune_data is not None:
             X_ft, y_ft = fine_tune_data
             self.train_model(X_ft, y_ft, loss_fn=nn.MSELoss(), num_epochs=num_epochs_ft, lr=lr_ft, batch_size=batch_size)
-        
+
         self.eval()
+        predictions = []
+        
         with torch.no_grad():
-            predictions = self(torch.tensor(X, dtype=torch.float32))
-        return predictions.numpy()
+            loader = DataLoader(TensorDataset(torch.tensor(X, dtype=torch.float32, device=self.device)), 
+                                batch_size=batch_size, shuffle=False)
+
+            for X_batch in loader:
+                X_batch = X_batch[0]  # Lấy dữ liệu từ tuple
+                preds = self(X_batch)
+                predictions.append(preds.cpu().numpy())
+        
+        return np.vstack(predictions)  # Ghép lại thành một mảng numpy đầy đủ
+

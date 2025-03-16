@@ -12,8 +12,8 @@ class LSTMWrapper(nn.Module):
         return out
 
 class LSTMStockModel(BasePytorchModel):
-    def __init__(self, input_dim: int, hidden_dim: int | list[int], fc_dim: int, output_dim: int):
-        super(LSTMStockModel, self).__init__()
+    def __init__(self, optimizer_class: type[torch.optim.Optimizer], optimizer_params, input_dim: int, hidden_dim: int | list[int], fc_dim: int, output_dim: int):
+        super(LSTMStockModel, self).__init__(optimizer_class, optimizer_params)
         
         # Nếu hidden_dim chỉ là int, chuyển thành list
         if isinstance(hidden_dim, int):
