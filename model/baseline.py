@@ -1,5 +1,5 @@
 import numpy as np
-from common import BaseModel
+from model.common import BaseModel
 
 class BaselineLastDayModel(BaseModel):
     def __init__(self):
