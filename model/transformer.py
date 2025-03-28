@@ -48,7 +48,8 @@ class LocalAttention(nn.Module):
 
         for i in range(seq_len):
             left = max(0, i - self.window)
-            mask[:, i, left:i+1] = 0  # Chỉ cho phép nhìn thấy ngày hiện tại và quá khứ (t - window → t)
+            right = min(seq_len, i + self.window + 1)
+            mask[:, i, left:right] = 0  
 
         # Điều chỉnh mask để phù hợp với MultiheadAttention
         mask = mask.unsqueeze(1).expand(-1, self.num_heads, -1, -1)  # (batch_size, num_heads, seq_len, seq_len)
@@ -56,7 +57,56 @@ class LocalAttention(nn.Module):
 
         attn_out, _ = self.attn(x, x, x, attn_mask=mask)
         return attn_out
+    
+class CausalAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int):
+        super(CausalAttention, self).__init__()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.num_heads = num_heads
+        self.embed_dim = embed_dim
+        self.attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True).to(self.device)
+        
+    def forward(self, x):
+        x = x.to(self.device)
+        batch_size, seq_len, embed_dim = x.shape
+        mask = torch.full((batch_size, seq_len, seq_len), float('-inf'), device=self.device)
 
+        for i in range(seq_len):
+            mask[:, i, :i+1] = 0  
+        
+        mask = mask.unsqueeze(1).expand(-1, self.num_heads, -1, -1)
+        mask = mask.reshape(batch_size * self.num_heads, seq_len, seq_len)
+        
+        attn_out, _ = self.attn(x, x, x, attn_mask=mask)
+        return attn_out
+
+class RestrictedCausalAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, window: int):
+        super(RestrictedCausalAttention, self).__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.num_heads = num_heads
+        self.window = window
+        self.embed_dim = embed_dim
+        self.attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True).to(self.device)
+
+    def forward(self, x):
+        x = x.to(self.device)
+        batch_size, seq_len, embed_dim = x.shape  # batch_first=True
+
+        # Tạo mask riêng cho từng batch
+        mask = torch.full((batch_size, seq_len, seq_len), float('-inf'), device=x.device)  
+
+        for i in range(seq_len):
+            left = max(0, i - self.window)
+            right = min(seq_len, i + 1)
+            mask[:, i, left:right] = 0  
+
+        # Điều chỉnh mask để phù hợp với MultiheadAttention
+        mask = mask.unsqueeze(1).expand(-1, self.num_heads, -1, -1)  # (batch_size, num_heads, seq_len, seq_len)
+        mask = mask.reshape(batch_size * self.num_heads, seq_len, seq_len)  # (batch_size * num_heads, seq_len, seq_len)
+
+        attn_out, _ = self.attn(x, x, x, attn_mask=mask)
+        return attn_out
     
 class StandardTransformerEncoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_ff=2048, dropout=0.1):
@@ -86,21 +136,11 @@ class StandardTransformerEncoderLayer(nn.Module):
         x = self.norm2(x)
         return x
     
-class LocalTransformerEncoderLayer(nn.Module):
+class LocalTransformerEncoderLayer(StandardTransformerEncoderLayer):
     def __init__(self, d_model, nhead, window, dim_ff=2048, dropout=0.1):
-        super(LocalTransformerEncoderLayer, self).__init__()
+        super(LocalTransformerEncoderLayer, self).__init__(d_model, nhead, dim_ff, dropout)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.self_attention = LocalAttention(embed_dim=d_model, num_heads=nhead, window=window).to(self.device)
-        # Feed forward
-        self.linear1 = nn.Linear(d_model, dim_ff).to(self.device)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_ff, d_model).to(self.device)
-        # Norm & Res & Activate
-        self.norm1 = nn.LayerNorm(d_model).to(self.device)
-        self.norm2 = nn.LayerNorm(d_model).to(self.device)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-        self.activation = nn.ReLU()
         
     def forward(self, x, mask=None, key_padding_mask=None):
         x = x.to(self.device)
@@ -114,6 +154,45 @@ class LocalTransformerEncoderLayer(nn.Module):
         x = x + self.dropout2(x2)
         x = self.norm2(x)
         return x
+    
+class CausalTransformerEncoderLayer(StandardTransformerEncoderLayer):
+    def __init__(self, d_model, nhead, dim_ff=2048, dropout=0.1):
+        super(CausalTransformerEncoderLayer, self).__init__(d_model, nhead, dim_ff, dropout)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.self_attention = CausalAttention(embed_dim=d_model, num_heads=nhead).to(self.device)
+        
+    def forward(self, x, mask=None, key_padding_mask=None):
+        x = x.to(self.device)
+        # x: (batch, seq_len, d_model)
+        x2 = self.self_attention(x)
+        x = x + self.dropout1(x2)
+        x = self.norm1(x)
+        
+        x2 = self.linear2(self.dropout(self.activation(self.linear1(x))))
+        
+        x = x + self.dropout2(x2)
+        x = self.norm2(x)
+        return x
+    
+class RestrictedCausalTransformerEncoderLayer(StandardTransformerEncoderLayer):
+    def __init__(self, d_model, nhead, window, dim_ff=2048, dropout=0.1):
+        super(RestrictedCausalTransformerEncoderLayer, self).__init__(d_model, nhead, dim_ff, dropout)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.self_attention = RestrictedCausalAttention(embed_dim=d_model, num_heads=nhead, window=window).to(self.device)
+        
+    def forward(self, x, mask=None, key_padding_mask=None):
+        x = x.to(self.device)
+        # x: (batch, seq_len, d_model)
+        x2 = self.self_attention(x)
+        x = x + self.dropout1(x2)
+        x = self.norm1(x)
+        
+        x2 = self.linear2(self.dropout(self.activation(self.linear1(x))))
+        
+        x = x + self.dropout2(x2)
+        x = self.norm2(x)
+        return x
+
     
 class TransformerEncoder(nn.Module):
     def __init__(self, encoder_layer, num_layers=4):
@@ -167,3 +246,22 @@ class LocalTransformerModel(StandardTransformerModel):
         self.window = window
         local_encoder_layer = LocalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
         self.encoder = TransformerEncoder(local_encoder_layer, num_layers=num_encoder_layers).to(self.device)
+
+class CausalTransformerModel(StandardTransformerModel):
+    def __init__(self, input_dim, d_model, nhead, num_encoder_layers, 
+                 dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
+        super().__init__(input_dim, d_model, nhead, 
+                         num_encoder_layers, dim_ff, dropout, 
+                         max_len, output_dim, ndays)
+        causal_encoder_layer = CausalTransformerEncoderLayer(d_model, nhead, dim_ff, dropout).to(self.device)
+        self.encoder = TransformerEncoder(causal_encoder_layer, num_layers=num_encoder_layers).to(self.device)
+        
+class RestrictedCausalTransformerModel(StandardTransformerModel):
+    def __init__(self, input_dim, 
+                 d_model, nhead, num_encoder_layers, window,
+                 dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
+        super().__init__(input_dim, d_model, nhead, 
+                         num_encoder_layers, dim_ff, dropout, max_len, output_dim, ndays)
+        self.window = window
+        r_causal_encoder_layer = RestrictedCausalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
+        self.encoder = TransformerEncoder(r_causal_encoder_layer, num_layers=num_encoder_layers).to(self.device)

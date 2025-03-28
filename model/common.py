@@ -5,9 +5,20 @@ from torch.utils.data import TensorDataset, DataLoader
 from abc import ABC, abstractmethod
 import numpy as np
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from typing import Literal
 
 class supported_metrics:
+    """
+    Các metric được hỗ trợ để đo lường kết quả, có thể gọi dưới dạng function
+    """
     def __init__(self, metric, name: str):
+        """
+        Khởi tạo một supported metrics
+
+        Args:
+            metric (_type_): Một hàm tính metric được truyền vào
+            name (str): Tên của metric
+        """
         self.metric = metric
         self.name = name
         
@@ -21,14 +32,33 @@ mse = supported_metrics(mean_squared_error, 'mse')
 mae = supported_metrics(mean_absolute_error, 'mae')
 corr = supported_metrics(np.corrcoef, 'corr')
 
-# Lớp BaseModel trừu tượng
 class BaseModel(ABC):
+    """
+    Lớp Abstract đại diện cho một Model cơ bản
+
+    """
     @abstractmethod
     def train_model(self, X, y, **kwargs):
+        """
+        Huấn luyện mô hình, có thể thêm các tham số **kwargs
+
+        Args:
+            X (MatrixLike): Đầu vào huấn luyện
+            y (MatrixLike): Đầu ra mong muốn
+        """
         pass
 
     @abstractmethod
     def predict(self, X, **kwargs):
+        """
+        Dự đoán một đầu vào mới, có thể thêm các tham số **kwargs
+
+        Args:
+            X (MatrixLike): Đầu vào mới cần dự đoán
+            
+        Returns:
+            MatrixLike: Đầu ra dự đoán
+        """
         pass
 
     def evaluate_model(self, y_true, y_pred, metric: supported_metrics):
@@ -38,6 +68,10 @@ class BaseModel(ABC):
 
 # Lớp BasePytorchModel chứa các hàm hỗ trợ dùng chung cho các mô hình deep learning PyTorch
 class BasePytorchModel(nn.Module, BaseModel):
+    """
+    Lớp cơ bản cho mọi Model sử dụng Pytorch, được xây dựng sẵn các hàm chia loader,
+    train, predict, evaluate.
+    """
     def __init__(self):
         super(BasePytorchModel, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,13 +85,31 @@ class BasePytorchModel(nn.Module, BaseModel):
         self.to(self.device)
 
     def init_optimizer(self, optimizer_class: type[optim.Optimizer], optimizer_params=None, lr:float=1e-4):
+        """
+        Khởi tạo Optimizer dùng cho huấn luyện. Nếu Model đã có optimizer thì optimizer
+        cũ sẽ bị ghi đè và được thông báo ra console.
+
+        Args:
+            optimizer_class (type[optim.Optimizer]): Class Optimizer sử dụng, cần kế thừa từ 
+                `torch.optim.Optimizer`
+            optimizer_params (dict, optional): Danh sách các params cho optimizer. Defaults to None.
+            lr (float, optional): Tốc độ học. Defaults to 1e-4.
+        """
         self.optimizer_class = optimizer_class
         self.optimizer_params = optimizer_params if optimizer_params is not None else {}
         if self.optimizer is not None:
             print("Warning: Overriding existing optimizer.")
         self.optimizer = optimizer_class(self.parameters(), lr=lr, **self.optimizer_params)
 
-    def init_scheduler(self, scheduler_type, scheduler_params):
+    def init_scheduler(self, scheduler_type: Literal['step', 'cosine', 'reduce_on_plateau'], 
+                       scheduler_params):
+        """
+        Khởi tạo scheduler để tự thích ứng tốc độ học
+
+        Args:
+            scheduler_type (Literal[&#39;step&#39;, &#39;cosine&#39;, &#39;reduce_on_plateau&#39;]): Loại scheduler sử dụng
+            scheduler_params (dict): Tham số cho scheduler
+        """
         if scheduler_type == "step":
             self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, **scheduler_params)
         elif scheduler_type == "cosine":
@@ -69,6 +121,18 @@ class BasePytorchModel(nn.Module, BaseModel):
 
     @staticmethod
     def make_loader(X, y, batch_size=32, shuffle=True):
+        """
+        Tạo ra loader từ một bộ đầu vào - đầu ra (X,y) là các MatrixLike.
+
+        Args:
+            X (MatrixLike): Đầu vào 
+            y (MatrixLike): Đầu ra mong muốn
+            batch_size (int, optional): Số lượng phần tử 1 batch. Defaults to 32.
+            shuffle (bool, optional): Xác định xem có xáo trộn ngẫu nhiên không. Defaults to True.
+
+        Returns:
+            DataLoader: Một DataLoader có thể đưa vào PytorchModel
+        """
         X_tensor = torch.tensor(X, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.float32)
         if y_tensor.ndim == 1:
@@ -78,6 +142,16 @@ class BasePytorchModel(nn.Module, BaseModel):
         return loader
     
     def save_model(self, file_path="model_checkpoint.pth"):
+        """
+        Lưu các thông tin model vào file `.pth`. Các thông tin bao gồm `model_state_dict`, 
+        `optimizer_state_dict`, `last_epoch`, `last_loss`.
+        
+        Args:
+            file_path (str, optional): Đường dẫn tới file cần lưu. Defaults to "model_checkpoint.pth".
+
+        Raises:
+            Exception: Nếu Model chưa được train lần nào
+        """
         if not self.trained:
             raise Exception("Model is not trained yet.")
         torch.save({
@@ -86,8 +160,17 @@ class BasePytorchModel(nn.Module, BaseModel):
             "last_epoch": self.last_epoch,
             "last_loss": self.last_loss
         }, file_path)
+        
+        print(f"Save best model with {self.last_epoch} epoch and loss is {self.last_loss}")
 
     def load_model(self, file_path="model_checkpoint.pth", set_eval=True):
+        """
+        Load Model từ một checkpoint từ file `.pth`.
+
+        Args:
+            file_path (str, optional): Đường dẫn tới file checkpoint. Defaults to "model_checkpoint.pth".
+            set_eval (bool, optional): Set model về trạng thái eval (ko huấn luyện nữa). Defaults to True.
+        """
         checkpoint = torch.load(file_path, map_location=self.device)
         self.load_state_dict(checkpoint["model_state_dict"])
         if self.optimizer is None:
@@ -101,17 +184,29 @@ class BasePytorchModel(nn.Module, BaseModel):
 
     def train_model(self, X, y, loss_fn, num_epochs, lr, optimizer_class: type[optim.Optimizer], optimizer_params=None,
                     batch_size=32, X_val=None, y_val=None,
-                    use_warmup=False, warmup_epochs=5, scheduler_type=None, scheduler_params=None):
+                    use_warmup=False, warmup_epochs=5, scheduler_type=None, scheduler_params=None,
+                    early_stopping=True, patience=5, save_best_model=True, best_model_checkpoint: str="best.pth",
+                    force_override_optimizer=True):
+
         train_loader = BasePytorchModel.make_loader(X, y, batch_size=batch_size, shuffle=True)
-        self.init_optimizer(optimizer_class, optimizer_params, lr)
-        
+
+        # Chỉ khởi tạo optimizer nếu force_override_optimizer=True hoặc chưa có optimizer
+        if force_override_optimizer or self.optimizer is None or type(self.optimizer) is not optimizer_class or self.optimizer.param_groups[0]["lr"] != lr:
+            self.init_optimizer(optimizer_class, optimizer_params, lr)
+
         if use_warmup:
             warmup_scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.1, total_iters=warmup_epochs)
-        
+
         if scheduler_type:
             self.init_scheduler(scheduler_type, scheduler_params)
 
-        for epoch in range(self.last_epoch + 1, self.last_epoch + num_epochs + 1):
+        # Biến theo dõi Early Stopping
+        best_val_loss = float("inf")
+        wait = 0  
+        
+        this_last_epoch = self.last_epoch
+
+        for epoch in range(this_last_epoch + 1, this_last_epoch + num_epochs + 1):
             self.train()
             epoch_loss = 0.0
             for X_batch, y_batch in train_loader:
@@ -123,25 +218,45 @@ class BasePytorchModel(nn.Module, BaseModel):
                 self.optimizer.step()
                 epoch_loss += loss.item() * X_batch.size(0)
             epoch_loss /= len(train_loader.dataset)
-            
+            self.trained = True
+            # Xác định validation loss
+            val_loss = None
+            if X_val is not None and y_val is not None:
+                val_loss = self.valid_model(X_val, y_val, loss_fn, batch_size=batch_size*2)
+
+            # Cập nhật Warmup Scheduler
             if use_warmup and epoch <= warmup_epochs:
                 warmup_scheduler.step()
             elif self.scheduler:
-                if scheduler_type == "reduce_on_plateau":
-                    self.scheduler.step(epoch_loss)
+                if scheduler_type == "reduce_on_plateau" and val_loss is not None:
+                    self.scheduler.step(val_loss)  # Giờ đã có val_loss hợp lệ
                 else:
                     self.scheduler.step()
-            
-            if X_val is not None and y_val is not None:
-                val_loss = self.valid_model(X_val, y_val, loss_fn, batch_size=batch_size*2)
-                print(f"Epoch {epoch}/{num_epochs+self.last_epoch}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+            # In loss
+            if val_loss is not None:
+                print(f"Epoch {epoch}/{num_epochs+this_last_epoch}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
             else:
-                print(f"Epoch {epoch}/{num_epochs+self.last_epoch}, Train Loss: {epoch_loss:.4f}")
+                print(f"Epoch {epoch}/{num_epochs+this_last_epoch}, Train Loss: {epoch_loss:.4f}")
+
             self.last_epoch = epoch
             self.last_loss = epoch_loss
-        self.trained = True
 
-    def valid_model(self, X, y, loss_fn, batch_size=32):
+            # Cập nhật trạng thái model tốt nhất nếu val_loss giảm
+            if val_loss is not None:
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    wait = 0  # Reset bộ đếm Early Stopping
+                    if save_best_model:
+                        self.save_model(file_path=best_model_checkpoint)
+                else:
+                    wait += 1
+                    if early_stopping and wait >= patience:
+                        print(f"Early stopping triggered at epoch {epoch}")
+                        break  # Dừng training nếu val_loss không cải thiện sau "patience" epoch
+
+
+    def valid_model(self, X, y, loss_fn, batch_size=64):
         loader = BasePytorchModel.make_loader(X, y, batch_size=batch_size, shuffle=False)
         self.eval()
         total_loss = 0.0

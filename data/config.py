@@ -1,3 +1,4 @@
+
 tickers = [
     "AAPL",       # Apple Inc.
     "MSFT",       # Microsoft Corporation
