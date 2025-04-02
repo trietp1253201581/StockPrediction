@@ -84,7 +84,7 @@ class BasePytorchModel(nn.Module, BaseModel):
         self.trained = False
         self.to(self.device)
 
-    def init_optimizer(self, optimizer_class: type[optim.Optimizer], optimizer_params=None, lr:float=1e-4):
+    def init_optimizer(self, optimizer_class: type[optim.Optimizer], optimizer_params=None, lr:float=1e-4, debug=True):
         """
         Khởi tạo Optimizer dùng cho huấn luyện. Nếu Model đã có optimizer thì optimizer
         cũ sẽ bị ghi đè và được thông báo ra console.
@@ -98,7 +98,7 @@ class BasePytorchModel(nn.Module, BaseModel):
         self.optimizer_class = optimizer_class
         self.optimizer_params = optimizer_params if optimizer_params is not None else {}
         if self.optimizer is not None:
-            print("Warning: Overriding existing optimizer.")
+            BasePytorchModel._print_with_debug("Warning: Overriding existing optimizer.", debug)
         self.optimizer = optimizer_class(self.parameters(), lr=lr, **self.optimizer_params)
 
     def init_scheduler(self, scheduler_type: Literal['step', 'cosine', 'reduce_on_plateau'], 
@@ -141,7 +141,7 @@ class BasePytorchModel(nn.Module, BaseModel):
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
         return loader
     
-    def save_model(self, file_path="model_checkpoint.pth"):
+    def save_model(self, file_path="model_checkpoint.pth", debug=True):
         """
         Lưu các thông tin model vào file `.pth`. Các thông tin bao gồm `model_state_dict`, 
         `optimizer_state_dict`, `last_epoch`, `last_loss`.
@@ -161,9 +161,9 @@ class BasePytorchModel(nn.Module, BaseModel):
             "last_loss": self.last_loss
         }, file_path)
         
-        print(f"Save best model with {self.last_epoch} epoch and loss is {self.last_loss}")
+        BasePytorchModel._print_with_debug(f"Save best model with {self.last_epoch} epoch and loss is {self.last_loss}", debug)
 
-    def load_model(self, file_path="model_checkpoint.pth", set_eval=True):
+    def load_model(self, file_path="model_checkpoint.pth", set_eval=True, debug=True):
         """
         Load Model từ một checkpoint từ file `.pth`.
 
@@ -179,20 +179,24 @@ class BasePytorchModel(nn.Module, BaseModel):
         self.last_epoch = checkpoint.get("last_epoch", 0)
         self.last_loss = checkpoint.get("last_loss", 0.0)
         self.eval() if set_eval else self.train()
-        print(f"Model loaded from {file_path}, starting from epoch {self.last_epoch}, eval mode: {set_eval}")
+        BasePytorchModel._print_with_debug(f"Model loaded from {file_path}, starting from epoch {self.last_epoch}, eval mode: {set_eval}", debug)
 
+    @staticmethod
+    def _print_with_debug(msg: str, debug: bool=True):
+        if debug:
+            print(msg)
 
     def train_model(self, X, y, loss_fn, num_epochs, lr, optimizer_class: type[optim.Optimizer], optimizer_params=None,
                     batch_size=32, X_val=None, y_val=None,
                     use_warmup=False, warmup_epochs=5, scheduler_type=None, scheduler_params=None,
                     early_stopping=True, patience=5, save_best_model=True, best_model_checkpoint: str="best.pth",
-                    force_override_optimizer=True):
+                    force_override_optimizer=True, debug=True):
 
         train_loader = BasePytorchModel.make_loader(X, y, batch_size=batch_size, shuffle=True)
 
         # Chỉ khởi tạo optimizer nếu force_override_optimizer=True hoặc chưa có optimizer
         if force_override_optimizer or self.optimizer is None or type(self.optimizer) is not optimizer_class or self.optimizer.param_groups[0]["lr"] != lr:
-            self.init_optimizer(optimizer_class, optimizer_params, lr)
+            self.init_optimizer(optimizer_class, optimizer_params, lr, debug)
 
         if use_warmup:
             warmup_scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.1, total_iters=warmup_epochs)
@@ -235,9 +239,9 @@ class BasePytorchModel(nn.Module, BaseModel):
 
             # In loss
             if val_loss is not None:
-                print(f"Epoch {epoch}/{num_epochs+this_last_epoch}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+                BasePytorchModel._print_with_debug(f"Epoch {epoch}/{num_epochs+this_last_epoch}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}", debug)
             else:
-                print(f"Epoch {epoch}/{num_epochs+this_last_epoch}, Train Loss: {epoch_loss:.4f}")
+                BasePytorchModel._print_with_debug(f"Epoch {epoch}/{num_epochs+this_last_epoch}, Train Loss: {epoch_loss:.4f}", debug)
 
             self.last_epoch = epoch
             self.last_loss = epoch_loss
@@ -248,11 +252,11 @@ class BasePytorchModel(nn.Module, BaseModel):
                     best_val_loss = val_loss
                     wait = 0  # Reset bộ đếm Early Stopping
                     if save_best_model:
-                        self.save_model(file_path=best_model_checkpoint)
+                        self.save_model(file_path=best_model_checkpoint, debug=debug)
                 else:
                     wait += 1
                     if early_stopping and wait >= patience:
-                        print(f"Early stopping triggered at epoch {epoch}")
+                        BasePytorchModel._print_with_debug(f"Early stopping triggered at epoch {epoch}", debug)
                         break  # Dừng training nếu val_loss không cải thiện sau "patience" epoch
 
 
