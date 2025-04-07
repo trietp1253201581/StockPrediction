@@ -322,7 +322,9 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
         h = self.encoder(x)                                # (batch, seq_len, d_model)
         h_last = h[:, -1, :]                               # lấy vị trí cuối cùng
         out = self.fc(h_last)                              # (batch, ndays * output_dim)
-        return out.view(out.size(0), self.ndays, -1)       # → (batch, ndays, output_dim)
+        if out.shape[1] == self.ndays:
+            return out
+        return out.view(out.shape[0], self.ndays, -1)  # (batch, ndays, output_dim)      # → (batch, ndays, output_dim)
     
 class RelativeRestrictedCausalAttention(nn.Module):
     def __init__(self, embed_dim: int, num_heads: int, window: int):
