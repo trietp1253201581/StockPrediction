@@ -56,7 +56,7 @@ class RelativePositionalEncoding(nn.Module):
         rel_pos = range_vec[None, :] - range_vec[:, None]
         rel_pos = rel_pos.clamp(-self.max_relative_position, self.max_relative_position) + self.max_relative_position
         # rel_pos: (seq_len, seq_len)
-        return self.relative_embeddings(rel_pos)  # (seq_len, seq_len, embed_dim)
+        return self.relative_embeddings(rel_pos.to(self.device))  # (seq_len, seq_len, embed_dim)
     
 class LocalAttention(nn.Module):
     def __init__(self, embed_dim: int, num_heads: int, window: int):
