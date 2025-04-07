@@ -439,7 +439,7 @@ class RestrictedCausalTransformerWithRelativePE(BasePytorchModel):
         # 1) embed input
         self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
         # 2) relative positional encoding
-        self.rel_pos_encoder = RelativePositionalEncoding(max_relative_position, d_model).to(self.device)
+        self.rel_pos_encoder = RelativePositionalEncoding(max_relative_position, d_model//nhead).to(self.device)
         # 3) stack of RestrictedCausalTransformerEncoderLayer
         #    lớp này bên trong dùng RestrictedCausalAttention
         rcel = RelativeRestrictedCausalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
