@@ -329,15 +329,33 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
             return out
         return out.view(out.shape[0], self.ndays, -1)  # (batch, ndays, output_dim)      # → (batch, ndays, output_dim)
     
-class RestrictedCausalTransfomerWithLearnablePE(StandardTransformerWithLearnablePE):
+class RestrictedCausalTransfomerWithLearnablePE(BasePytorchModel):
     def __init__(self, input_dim, 
                  d_model, nhead, num_encoder_layers, window,
                  dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
-        super().__init__(input_dim, d_model, nhead, 
-                         num_encoder_layers, dim_ff, dropout, max_len, output_dim, ndays)
+        super().__init__()
+        self.ndays = ndays
+        # 1) embed input features → d_model
+        self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
+        # 2) learnable positional encoding
+        self.pos_encoder = LearnablePositionalEncoding(max_seq_len=max_len, embed_dim=d_model).to(self.device)
+        # 4) head dự đoán giá
+        self.fc = nn.Linear(d_model, output_dim * ndays).to(self.device)
         self.window = window
         r_causal_encoder_layer = RestrictedCausalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
         self.encoder = TransformerEncoder(r_causal_encoder_layer, num_layers=num_encoder_layers).to(self.device)
+    
+    def forward(self, x):
+        # x: (batch, seq_len, input_dim)
+        x = x.to(self.device)
+        x = self.input_linear(x)                           # → (batch, seq_len, d_model)
+        x = self.pos_encoder(x)                            # + learnable PE
+        h = self.encoder(x)                                # (batch, seq_len, d_model)
+        h_last = h[:, -1, :]                               # lấy vị trí cuối cùng
+        out = self.fc(h_last)                              # (batch, ndays * output_dim)
+        if out.shape[1] == self.ndays:
+            return out
+        return out.view(out.shape[0], self.ndays, -1)  # (batch, ndays, output_dim) 
     
 class RelativeRestrictedCausalAttention(nn.Module):
     def __init__(self, embed_dim: int, num_heads: int, window: int):
