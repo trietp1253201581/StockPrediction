@@ -33,19 +33,22 @@ class PositionalEncoding(nn.Module):
 class LearnablePositionalEncoding(nn.Module):
     def __init__(self, max_seq_len, embed_dim):
         super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.pos_embedding = nn.Parameter(torch.randn(1, max_seq_len, embed_dim))
 
     def forward(self, x):
         # x: (batch_size, seq_len, embed_dim)
+        x = x.to(self.device)
         seq_len = x.size(1)
         return x + self.pos_embedding[:, :seq_len, :]
     
 class RelativePositionalEncoding(nn.Module):
     def __init__(self, max_relative_position, embed_dim):
         super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_relative_position = max_relative_position
         self.embed_dim = embed_dim
-        self.relative_embeddings = nn.Embedding(2 * max_relative_position + 1, embed_dim)
+        self.relative_embeddings = nn.Embedding(2 * max_relative_position + 1, embed_dim).to(self.device)
 
     def forward(self, seq_len):
         # Create relative position matrix
@@ -326,6 +329,16 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
             return out
         return out.view(out.shape[0], self.ndays, -1)  # (batch, ndays, output_dim)      # → (batch, ndays, output_dim)
     
+class RestrictedCausalTransfomerWithLearnablePE(StandardTransformerWithLearnablePE):
+    def __init__(self, input_dim, 
+                 d_model, nhead, num_encoder_layers, window,
+                 dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
+        super().__init__(input_dim, d_model, nhead, 
+                         num_encoder_layers, dim_ff, dropout, max_len, output_dim, ndays)
+        self.window = window
+        r_causal_encoder_layer = RestrictedCausalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
+        self.encoder = TransformerEncoder(r_causal_encoder_layer, num_layers=num_encoder_layers).to(self.device)
+    
 class RelativeRestrictedCausalAttention(nn.Module):
     def __init__(self, embed_dim: int, num_heads: int, window: int):
         super().__init__()
@@ -336,10 +349,10 @@ class RelativeRestrictedCausalAttention(nn.Module):
         # Ta vẫn dùng MultiheadAttention, nhưng sẽ tự tính score + mask
         self.head_dim = embed_dim // num_heads
         assert self.head_dim * num_heads == embed_dim, "embed_dim phải chia hết cho num_heads"
-        self.q_proj = nn.Linear(embed_dim, embed_dim)
-        self.k_proj = nn.Linear(embed_dim, embed_dim)
-        self.v_proj = nn.Linear(embed_dim, embed_dim)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.q_proj = nn.Linear(embed_dim, embed_dim).to(self.device)
+        self.k_proj = nn.Linear(embed_dim, embed_dim).to(self.device)
+        self.v_proj = nn.Linear(embed_dim, embed_dim).to(self.device)
+        self.out_proj = nn.Linear(embed_dim, embed_dim).to(self.device)
     
     def forward(self, x, rel_pos):
         """
@@ -358,7 +371,7 @@ class RelativeRestrictedCausalAttention(nn.Module):
         
         # 2) score chuẩn: Q · K^T
         #   → (B, H, L, L)
-        score_content = torch.einsum('bhld,bhmd->bhlm', q, k)
+        score_content = torch.einsum('bhld,bhmd->bhlm', q, k).to(self.device)
         
         # 3) score tương đối: Q · R^T
         #    rel_pos: (L, L, embed_dim) → chia thành H head: (L, L, H, D)
