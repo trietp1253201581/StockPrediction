@@ -293,9 +293,6 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
         self.ndays = ndays
         # 1) embed input features → d_model
         self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
-        
-        self.lstm = nn.LSTM(input_size=d_model, hidden_size=d_model, batch_first=True).to(self.device)
-        
         # 2) learnable positional encoding
         self.pos_encoder = LearnablePositionalEncoding(max_seq_len=max_len, embed_dim=d_model).to(self.device)
         # 3) stack of standard TransformerEncoderLayer (với MultiheadAttention)
@@ -308,7 +305,7 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
         # x: (batch, seq_len, input_dim)
         x = x.to(self.device)
         x = self.input_linear(x)                           # → (batch, seq_len, d_model)
-        x, _ = self.lstm(x)
+
         x = self.pos_encoder(x)                            # + learnable PE
         h = self.encoder(x)                                # (batch, seq_len, d_model)
         h_last = h[:, -1, :]                               # lấy vị trí cuối cùng
@@ -344,3 +341,42 @@ class RestrictedCausalTransfomerWithLearnablePE(BasePytorchModel):
         if out.shape[1] == self.ndays:
             return out
         return out.view(out.shape[0], self.ndays, -1)  # (batch, ndays, output_dim) 
+    
+class HybridModel(BasePytorchModel):
+    def __init__(self,
+                 input_dim,
+                 d_model,
+                 nhead,
+                 num_encoder_layers,
+                 max_len=100,
+                 dim_ff=2048,
+                 dropout=0.1,
+                 output_dim=1,
+                 ndays=5):
+        super().__init__()
+        self.ndays = ndays
+        # 1) embed input features → d_model
+        self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
+        
+        self.lstm = nn.LSTM(input_size=d_model, hidden_size=d_model, batch_first=True).to(self.device)
+        
+        # 2) learnable positional encoding
+        self.pos_encoder = LearnablePositionalEncoding(max_seq_len=max_len, embed_dim=d_model).to(self.device)
+        # 3) stack of standard TransformerEncoderLayer (với MultiheadAttention)
+        encoder_layer = StandardTransformerEncoderLayer(d_model, nhead, dim_ff, dropout).to(self.device)
+        self.encoder = TransformerEncoder(encoder_layer, num_layers=num_encoder_layers).to(self.device)
+        # 4) head dự đoán giá
+        self.fc = nn.Linear(d_model, output_dim * ndays).to(self.device)
+
+    def forward(self, x):
+        # x: (batch, seq_len, input_dim)
+        x = x.to(self.device)
+        x = self.input_linear(x)                           # → (batch, seq_len, d_model)
+        x, _ = self.lstm(x)
+        x = self.pos_encoder(x)                            # + learnable PE
+        h = self.encoder(x)                                # (batch, seq_len, d_model)
+        h_last = h[:, -1, :]                               # lấy vị trí cuối cùng
+        out = self.fc(h_last)                              # (batch, ndays * output_dim)
+        if out.shape[1] == self.ndays:
+            return out
+        return out.view(out.shape[0], self.ndays, -1)  # (batch, ndays, output_dim)      # → (batch, ndays, output_dim)
