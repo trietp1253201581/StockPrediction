@@ -293,6 +293,9 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
         self.ndays = ndays
         # 1) embed input features → d_model
         self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
+        
+        self.lstm = nn.LSTM(input_size=d_model, hidden_size=d_model, batch_first=True).to(self.device)
+        
         # 2) learnable positional encoding
         self.pos_encoder = LearnablePositionalEncoding(max_seq_len=max_len, embed_dim=d_model).to(self.device)
         # 3) stack of standard TransformerEncoderLayer (với MultiheadAttention)
@@ -305,6 +308,7 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
         # x: (batch, seq_len, input_dim)
         x = x.to(self.device)
         x = self.input_linear(x)                           # → (batch, seq_len, d_model)
+        x, _ = self.lstm(x)
         x = self.pos_encoder(x)                            # + learnable PE
         h = self.encoder(x)                                # (batch, seq_len, d_model)
         h_last = h[:, -1, :]                               # lấy vị trí cuối cùng
