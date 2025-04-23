@@ -42,6 +42,7 @@ def direction_accuracy(y_true, y_pred, y_prev):
     
     # Lọc ra các vị trí có thay đổi trong dự đoán
     valid_mask = delta_pred != 0
+    print(valid_mask.sum())
     if valid_mask.sum() == 0:
         return 0.0  # Không có dự đoán nào thay đổi, không tính được
     
