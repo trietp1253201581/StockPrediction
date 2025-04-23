@@ -5,7 +5,7 @@ class BaselineLastDayModel(BaseModel):
     
     def __init__(self):
         super().__init__()
-        
+        self.name = 'BaselineLastDayModel'
     def train_model(self, X, y, **kwargs):
         print('Model does not need to train')
     
@@ -18,8 +18,9 @@ class BaselineLastDayModel(BaseModel):
 class BaselineMAModel(BaseModel):
     def __init__(self, ma_window: int = 10):
         super().__init__()
-        self.ma_window = 10
-        
+        self.ma_window = ma_window
+        self.name = 'BaselineMAModel'
+
     def train_model(self, X, y, **kwargs):
         print('Model does not need to train')
     

@@ -13,10 +13,10 @@ class LSTMWrapper(nn.Module):
         out, _ = self.lstm(x)
         return out
 
-class LSTMStockModel(BasePytorchModel):
+class LSTMModel(BasePytorchModel):
     def __init__(self, input_dim: int, hidden_dim: int | list[int], fc_dim: int, output_dim: int):
-        super(LSTMStockModel, self).__init__()
-        
+        super(LSTMModel, self).__init__()
+        self.name = 'LSTMModel'
         # Nếu hidden_dim chỉ là int, chuyển thành list
         if isinstance(hidden_dim, int):
             hidden_dim = [hidden_dim]
@@ -45,15 +45,3 @@ class LSTMStockModel(BasePytorchModel):
         out = self.fc_layers(out)
         return out
 
-class BiLSTMStockModel(BasePytorchModel):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, dropout=0.2):
-        super(BiLSTMStockModel, self).__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True,
-                            bidirectional=True, dropout=dropout).to(self.device)
-        self.fc = nn.Linear(hidden_dim * 2, output_dim)
-    
-    def forward(self, x):
-        x = x.to(self.device)
-        out, _ = self.lstm(x)          # (batch_size, T, hidden_dim*2)
-        out = out[:, -1, :]            # lấy hidden state bước cuối
-        return self.fc(out)

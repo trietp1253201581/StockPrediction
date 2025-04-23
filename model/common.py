@@ -32,11 +32,32 @@ mse = supported_metrics(mean_squared_error, 'mse')
 mae = supported_metrics(mean_absolute_error, 'mae')
 corr = supported_metrics(np.corrcoef, 'corr')
 
+def direction_accuracy(y_true, y_pred, y_prev):
+    """
+    Tính direction accuracy: % dự đoán đúng chiều so với ngày hôm trước
+
+    Args:
+        y_true (np.ndarray): Giá thật hôm nay, shape (L,)
+        y_pred (np.ndarray): Giá dự đoán hôm nay, shape (L,)
+        y_prev (np.ndarray): Giá thật hôm qua, shape (L,)
+
+    Returns:
+        float: % đúng chiều
+    """
+    delta_true = y_true - y_prev
+    delta_pred = y_pred - y_prev
+    correct = np.sign(delta_true) == np.sign(delta_pred)
+    return correct.sum() / len(correct)
+
 class BaseModel(ABC):
     """
     Lớp Abstract đại diện cho một Model cơ bản
 
     """
+    
+    def __init__(self):
+        self.name = None
+        
     @abstractmethod
     def train_model(self, X, y, **kwargs):
         """
@@ -64,6 +85,12 @@ class BaseModel(ABC):
     def evaluate_model(self, y_true, y_pred, metric: supported_metrics):
         ndays = y_true.shape[1]
         perdays = np.array([metric(y_true[:, i], y_pred[:, i]) for i in range(ndays)])
+        return perdays, perdays.mean()
+    
+    def evaluate_da(self, y_true, y_pred, X):
+        y_prev = X[:, -1, 0]
+        ndays = y_true.shape[1]
+        perdays = np.array([direction_accuracy(y_true[:, i], y_pred[:, i], y_prev) for i in range(ndays)])
         return perdays, perdays.mean()
 
 # Lớp BasePytorchModel chứa các hàm hỗ trợ dùng chung cho các mô hình deep learning PyTorch

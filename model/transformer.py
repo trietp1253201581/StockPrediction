@@ -25,6 +25,7 @@ class PositionalEncoding(nn.Module):
         # Thêm pe vào tham số nhưng ko phải tham số huấn luyện
         self.register_buffer('pe', pe) 
         
+        
     def forward(self, x):
         x = x.to(self.device)
         out = x + self.pe[:, :x.size(1)]
@@ -224,6 +225,7 @@ class StandardTransformerModel(BasePytorchModel):
     def __init__(self, input_dim, d_model, nhead, num_encoder_layers, 
                  dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
         super(StandardTransformerModel, self).__init__()
+        self.name = 'StandardTransformerModel'
         self.ndays = ndays
         
         # Embed
@@ -256,6 +258,7 @@ class LocalTransformerModel(StandardTransformerModel):
         super().__init__(input_dim, d_model, nhead, 
                          num_encoder_layers, dim_ff, dropout, max_len, output_dim, ndays)
         self.window = window
+        self.name = 'LocalTransformerModel'
         local_encoder_layer = LocalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
         self.encoder = TransformerEncoder(local_encoder_layer, num_layers=num_encoder_layers).to(self.device)
 
@@ -265,6 +268,7 @@ class CausalTransformerModel(StandardTransformerModel):
         super().__init__(input_dim, d_model, nhead, 
                          num_encoder_layers, dim_ff, dropout, 
                          max_len, output_dim, ndays)
+        self.name = 'CausalTransformerModel'
         causal_encoder_layer = CausalTransformerEncoderLayer(d_model, nhead, dim_ff, dropout).to(self.device)
         self.encoder = TransformerEncoder(causal_encoder_layer, num_layers=num_encoder_layers).to(self.device)
         
@@ -274,6 +278,7 @@ class RestrictedCausalTransformerModel(StandardTransformerModel):
                  dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
         super().__init__(input_dim, d_model, nhead, 
                          num_encoder_layers, dim_ff, dropout, max_len, output_dim, ndays)
+        self.name = 'RestrictedCausalTransformerModel'
         self.window = window
         r_causal_encoder_layer = RestrictedCausalTransformerEncoderLayer(d_model, nhead, window, dim_ff, dropout).to(self.device)
         self.encoder = TransformerEncoder(r_causal_encoder_layer, num_layers=num_encoder_layers).to(self.device)
@@ -290,6 +295,7 @@ class StandardTransformerWithLearnablePE(BasePytorchModel):
                  output_dim=1,
                  ndays=5):
         super().__init__()
+        self.name = 'StandardTransformerWithLearnablePE'
         self.ndays = ndays
         # 1) embed input features → d_model
         self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
@@ -319,6 +325,7 @@ class RestrictedCausalTransfomerWithLearnablePE(BasePytorchModel):
                  d_model, nhead, num_encoder_layers, window,
                  dim_ff=2048, dropout=0.1, max_len=100, output_dim=1, ndays=5):
         super().__init__()
+        self.name = 'RestrictedCausalTransfomerWithLearnablePE'
         self.ndays = ndays
         # 1) embed input features → d_model
         self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
@@ -353,7 +360,8 @@ class HybridModel(BasePytorchModel):
                  dropout=0.1,
                  output_dim=1,
                  ndays=5):
-        super().__init__()
+        super().__init__()  
+        self.name = 'HybridModel'
         self.ndays = ndays
         # 1) embed input features → d_model
         self.input_linear = nn.Linear(input_dim, d_model).to(self.device)
