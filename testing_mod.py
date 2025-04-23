@@ -29,11 +29,14 @@ class TestingSet:
         self.y_tests = y_tests
         self.data_processor = data_processor
         
-import numpy as np
-import time
-import torch
-import torch.nn as nn
-import torch.optim as optim
+def set_seed(seed):
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.cuda.manual_seed(seed)
 
 # ------------------------------------------------------------------------------------------------
 # Common helpers
@@ -46,11 +49,6 @@ def inverse_y(y, data_processor):
     for i in range(ndays):
         y_new[:, i] = data_processor.inverse_transform(y[:, i], 'Close')[:, 0]
     return y_new
-
-def direction_accuracy(y_true, y_pred, y_prev):
-    delta_true = y_true - y_prev
-    delta_pred = y_pred - y_prev
-    return np.mean(np.sign(delta_true) == np.sign(delta_pred))
 
 # ------------------------------------------------------------------------------------------------
 # BaseModel testing
@@ -81,8 +79,8 @@ def test_base_model(model: BaseModel,
         # predict & inverse
         y_tr_pred = model.predict(training_set.X_train, ndays=ndays)
         y_vl_pred = model.predict(training_set.X_val,   ndays=ndays)
-        y_tr_true = inverse_y(y_tr_pred, training_set.data_processor)
-        y_vl_true = inverse_y(y_vl_pred, training_set.data_processor)
+        y_tr_true = inverse_y(training_set.y_train, training_set.data_processor)
+        y_vl_true = inverse_y(training_set.y_val, training_set.data_processor)
         y_tr_pred = inverse_y(y_tr_pred, training_set.data_processor)
         y_vl_pred = inverse_y(y_vl_pred, training_set.data_processor)
 
@@ -92,25 +90,19 @@ def test_base_model(model: BaseModel,
 
         y_prev_tr = training_set.X_train[:, -1, 0]
         y_prev_vl = training_set.X_val[:,   -1, 0]
-        train_da_pd = np.array([direction_accuracy(y_tr_true[:,i], y_tr_pred[:,i], y_prev_tr)
-                                 for i in range(ndays)])
-        val_da_pd   = np.array([direction_accuracy(y_vl_true[:,i], y_vl_pred[:,i], y_prev_vl)
-                                 for i in range(ndays)])
-        train_da_m = train_da_pd.mean()
-        val_da_m   = val_da_pd.mean()
+        train_da_pd, train_da_m = model.evaluate_da(y_tr_true, y_tr_pred, y_prev_tr)
+        val_da_pd, val_da_m = model.evaluate_da(y_vl_true, y_vl_pred, y_prev_vl)
 
         # 3) Eval test splits
         test_mse_means, test_da_means = [], []
         for X_t, y_t in zip(testing_set.X_tests, testing_set.y_tests):
             y_t_pred = model.predict(X_t, ndays=ndays)
-            y_t_true = inverse_y(y_t_pred, testing_set.data_processor)
+            y_t_true = inverse_y(y_t, testing_set.data_processor)
             y_t_pred = inverse_y(y_t_pred, testing_set.data_processor)
             mse_pd, mse_m = model.evaluate_model(y_t_true, y_t_pred, mse)
 
             y_prev_t = X_t[:, -1, 0]
-            da_pd   = np.array([direction_accuracy(y_t_true[:,i], y_t_pred[:,i], y_prev_t)
-                                 for i in range(ndays)])
-            da_m    = da_pd.mean()
+            da_pd, da_m = model.evaluate_da(y_t_true, y_t_pred, y_prev_t)
 
             test_mse_means.append(mse_m)
             test_da_means.append(da_m)
@@ -162,7 +154,7 @@ def test_pytorch_model(model: BasePytorchModel,
     results = []
     for run in range(attempts):
         # set seed
-        torch.manual_seed(random_seed + run)
+        set_seed(random_seed + run)
         # 1) train
         t0 = time.time()
         model.train_model(
@@ -181,14 +173,12 @@ def test_pytorch_model(model: BasePytorchModel,
         # define helper to eval one split
         def eval_split(X, y, prev_source):
             y_pred = model.predict(X, ndays=ndays)
-            y_true = inverse_y(y_pred, testing_set.data_processor)
+            y_true = inverse_y(y, testing_set.data_processor)
             y_pred_s = inverse_y(y_pred, testing_set.data_processor)
 
             mse_pd, mse_m = model.evaluate_model(y_true, y_pred_s, mse)
             y_prev = prev_source[:, -1, 0]
-            da_pd = np.array([direction_accuracy(y_true[:,i], y_pred_s[:,i], y_prev)
-                               for i in range(ndays)])
-            da_m = da_pd.mean()
+            da_pd, da_m = model.evaluate_da(y_true, y_pred_s, y_prev)
             return mse_pd, mse_m, da_pd, da_m
 
         # 2) train/val
