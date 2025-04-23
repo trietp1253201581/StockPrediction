@@ -87,8 +87,7 @@ class BaseModel(ABC):
         perdays = np.array([metric(y_true[:, i], y_pred[:, i]) for i in range(ndays)])
         return perdays, perdays.mean()
     
-    def evaluate_da(self, y_true, y_pred, X):
-        y_prev = X[:, -1, 0]
+    def evaluate_da(self, y_true, y_pred, y_prev):
         ndays = y_true.shape[1]
         perdays = np.array([direction_accuracy(y_true[:, i], y_pred[:, i], y_prev) for i in range(ndays)])
         return perdays, perdays.mean()
