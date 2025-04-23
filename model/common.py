@@ -109,6 +109,19 @@ class BasePytorchModel(nn.Module, BaseModel):
         self.last_loss = 0.0
         self.trained = False
         self.to(self.device)
+        
+    def save_init_state(self):
+        self.init_state = self.state_dict()
+        
+    def reset_state(self):
+        self.load_state_dict(self.init_state)
+        self.optimizer = None
+        self.scheduler = None
+        self.last_epoch = 0
+        self.last_loss = 0.0
+        self.trained = False
+        self.to(self.device)
+
 
     def init_optimizer(self, optimizer_class: type[optim.Optimizer], optimizer_params=None, lr:float=1e-4, debug=True):
         """

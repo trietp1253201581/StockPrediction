@@ -48,7 +48,7 @@ def predict_and_evaluate(model: BaseModel, X, y, data_processor: StockDataProces
     y_true_rev = inverse_y(y, data_processor)
     y_pred_rev = inverse_y(y_pred, data_processor)
     
-    if not is_da:
+    if is_da is False:
         perdays, mean = model.evaluate_model(y_true_rev, y_pred_rev, metric)
     else:
         y_prev = X[:, -1, 0]
@@ -65,7 +65,7 @@ def predict_and_evaluate_all(model: BaseModel, X, y, data_processor: StockDataPr
     }
     
     for metric in metrics:
-        perdays, mean = predict_and_evaluate(model, X, y, data_processor, metric, ndays)
+        perdays, mean = predict_and_evaluate(model, X, y, data_processor, metric, ndays=ndays)
         result[metric.name] = {
             'first': perdays[0],
             'last': perdays[-1],
@@ -138,6 +138,8 @@ def test_pytorch_model(model: BasePytorchModel, training_set: TrainingSet, testi
         'attempts': []
     }
     
+    model.save_init_state()
+    
     for i in range(attempts):
         new_attempt_result = {
             'id': i,
@@ -151,6 +153,7 @@ def test_pytorch_model(model: BasePytorchModel, training_set: TrainingSet, testi
         # Train phase
         start_time = time.time()
         set_seed(random_seed)
+        model.reset_state()
         model.train_model(
             X=training_set.X_train, y=training_set.y_train,
             loss_fn=nn.MSELoss(), num_epochs=40, lr=lr, batch_size=32,
