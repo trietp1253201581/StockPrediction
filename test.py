@@ -79,8 +79,8 @@ def test_base_model(model: BaseModel,
 
         # 2) Eval train & val
         # predict & inverse
-        y_tr_pred = model.predict(training_set.X_train, n_days=ndays)
-        y_vl_pred = model.predict(training_set.X_val,   n_days=ndays)
+        y_tr_pred = model.predict(training_set.X_train, ndays=ndays)
+        y_vl_pred = model.predict(training_set.X_val,   ndays=ndays)
         y_tr_true = inverse_y(y_tr_pred, training_set.data_processor)
         y_vl_true = inverse_y(y_vl_pred, training_set.data_processor)
         y_tr_pred = inverse_y(y_tr_pred, training_set.data_processor)
@@ -102,7 +102,7 @@ def test_base_model(model: BaseModel,
         # 3) Eval test splits
         test_mse_means, test_da_means = [], []
         for X_t, y_t in zip(testing_set.X_tests, testing_set.y_tests):
-            y_t_pred = model.predict(X_t, n_days=ndays)
+            y_t_pred = model.predict(X_t, ndays=ndays)
             y_t_true = inverse_y(y_t_pred, testing_set.data_processor)
             y_t_pred = inverse_y(y_t_pred, testing_set.data_processor)
             mse_pd, mse_m = model.evaluate_model(y_t_true, y_t_pred, mse)
@@ -141,7 +141,8 @@ def test_base_model(model: BaseModel,
             # test
             **test_summary
         })
-
+    from datetime import datetime
+    datetime()
     return results
 
 # ------------------------------------------------------------------------------------------------
@@ -181,7 +182,7 @@ def test_pytorch_model(model: BasePytorchModel,
 
         # define helper to eval one split
         def eval_split(X, y, prev_source):
-            y_pred = model.predict(X, n_days=ndays)
+            y_pred = model.predict(X, ndays=ndays)
             y_true = inverse_y(y_pred, testing_set.data_processor)
             y_pred_s = inverse_y(y_pred, testing_set.data_processor)
 
