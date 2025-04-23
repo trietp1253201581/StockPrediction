@@ -51,8 +51,9 @@ def predict_and_evaluate(model: BaseModel, X, y, data_processor: StockDataProces
     if is_da is False:
         perdays, mean = model.evaluate_model(y_true_rev, y_pred_rev, metric)
     else:
-        y_prev = X[:, -1, 0]
-        perdays, mean = model.evaluate_da(y_true_rev, y_pred_rev, y_prev)
+        y_prev_scaled = X[:, -1, 0:1]  # vẫn giữ shape (L, 1) để inverse_transform
+        y_prev_inv = data_processor.inverse_transform(y_prev_scaled, 'Close')[:, 0]  # lấy lại giá thật
+        perdays, mean = model.evaluate_da(y_true_rev, y_pred_rev, y_prev_inv)
     return perdays, mean
 
 def predict_and_evaluate_all(model: BaseModel, X, y, data_processor: StockDataProcessor, ndays: int=5):
