@@ -141,8 +141,6 @@ def test_base_model(model: BaseModel,
             # test
             **test_summary
         })
-    from datetime import datetime
-    datetime()
     return results
 
 # ------------------------------------------------------------------------------------------------
