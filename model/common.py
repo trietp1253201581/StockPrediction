@@ -34,19 +34,18 @@ corr = supported_metrics(np.corrcoef, 'corr')
 
 def direction_accuracy(y_true, y_pred, y_prev):
     """
-    Tính direction accuracy: % dự đoán đúng chiều so với ngày hôm trước
-
-    Args:
-        y_true (np.ndarray): Giá thật hôm nay, shape (L,)
-        y_pred (np.ndarray): Giá dự đoán hôm nay, shape (L,)
-        y_prev (np.ndarray): Giá thật hôm qua, shape (L,)
-
-    Returns:
-        float: % đúng chiều
+    Tính direction accuracy: % dự đoán đúng chiều so với ngày hôm trước, 
+    bỏ qua các trường hợp không thay đổi (delta_pred == 0)
     """
     delta_true = y_true - y_prev
     delta_pred = y_pred - y_prev
-    correct = np.sign(delta_true) == np.sign(delta_pred)
+    
+    # Lọc ra các vị trí có thay đổi trong dự đoán
+    valid_mask = delta_pred != 0
+    if valid_mask.sum() == 0:
+        return 0.0  # Không có dự đoán nào thay đổi, không tính được
+    
+    correct = np.sign(delta_true[valid_mask]) == np.sign(delta_pred[valid_mask])
     return correct.sum() / len(correct)
 
 class BaseModel(ABC):
