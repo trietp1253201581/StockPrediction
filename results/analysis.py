@@ -2,7 +2,7 @@ import json
 import pandas as pd
 
 # 1. Load JSON
-with open('all_results.json', 'r') as f:
+with open('results/all_results.json', 'r') as f:
     data = json.load(f)
 
 rows = []
@@ -20,8 +20,8 @@ for mdl in data:
         for split in ['train','valid']:
             agg = {}
             for metric in ['mse','mae','da']:
-                # mỗi attempt có mdl['attempts'][i][split][metric]['mean']
-                avg = sum(a[split][metric]['mean'] for a in mdl['attempts']) / mdl['num_attempts']
+                # mỗi attempt có mdl['attempts'][i][split][metric]['last']
+                avg = sum(a[split][metric]['last'] for a in mdl['attempts']) / mdl['num_attempts']
                 agg[metric] = avg
             rows.append({
                 'Model': name,
@@ -35,7 +35,7 @@ for mdl in data:
         # tests: chỉ test_id=0
         agg = {}
         for metric in ['mse','mae','da']:
-            avg = sum(a['tests'][0][metric]['mean'] for a in mdl['attempts']) / mdl['num_attempts']
+            avg = sum(a['tests'][0][metric]['last'] for a in mdl['attempts']) / mdl['num_attempts']
             agg[metric] = avg
         rows.append({
             'Model': name,
@@ -59,7 +59,7 @@ for mdl in data:
                     vals = []
                     for a in mdl['attempts']:
                         block = next(x for x in a[split] if x['type']==typ)
-                        vals.append(block[metric]['mean'])
+                        vals.append(block[metric]['last'])
                     agg[metric] = sum(vals)/len(vals)
                 rows.append({
                     'Model': f"{name}-{typ}",
@@ -78,7 +78,7 @@ for mdl in data:
                     tests_block = next(tb for tb in a['tests'] if tb['type']==typ)
                     # tests_block['tests'] is list; chọn test_id==0
                     tb0 = next(t for t in tests_block['tests'] if t['test_id']==0)
-                    vals.append(tb0[metric]['mean'])
+                    vals.append(tb0[metric]['last'])
                 agg[metric] = sum(vals)/len(vals)
             rows.append({
                 'Model': f"{name}-{typ}",
@@ -108,4 +108,4 @@ table.columns = [f"{metric}_{split}" for metric, split in table.columns]
 times = df[['Model','Train Time','Single Predict Time']].drop_duplicates().set_index('Model')
 final = table.join(times)
 
-final.to_csv('analysis.csv', index=True)
+final.to_csv('results/analysis_last.csv', index=True)
