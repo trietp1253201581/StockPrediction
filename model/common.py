@@ -309,21 +309,64 @@ class BasePytorchModel(nn.Module, BaseModel):
                 loss = loss_fn(outputs, y_batch)
                 total_loss += loss.item() * X_batch.size(0)
         return total_loss / len(loader.dataset)
+    
+    def fine_tune_last_layers(self, X, y, loss_fn, num_layers_to_tune=1, num_epochs=5, lr=1e-4, 
+                         optimizer_class=None, optimizer_params=None, batch_size=32, 
+                         X_val=None, y_val=None, early_stopping=True, patience=3,
+                         save_best_model=True, best_model_checkpoint="best_finetuned.pth", debug=True):
+        """
+        Fine-tune only the last few layers of the model while keeping earlier layers frozen.
+        
+        Args:
+            X: Input training data
+            y: Target training data
+            loss_fn: Loss function to use
+            num_layers_to_tune: Number of final layers to fine-tune (counting from the end)
+            num_epochs: Number of epochs for fine-tuning
+            lr: Learning rate
+            optimizer_class: Optimizer class to use
+            optimizer_params: Parameters for the optimizer
+            batch_size: Batch size for training
+            X_val: Validation input data
+            y_val: Validation target data
+            early_stopping: Whether to use early stopping
+            patience: Patience for early stopping
+            save_best_model: Whether to save the best model
+            best_model_checkpoint: Path to save the best model
+            debug: Whether to print debug information
+        """
+        if optimizer_class is None:
+            optimizer_class = self.optimizer_class if self.optimizer_class else optim.Adam
+        
+        if optimizer_params is None:
+            optimizer_params = self.optimizer_params if self.optimizer_params else {}
+        
+        # Get all named parameters
+        named_params = list(self.named_parameters())
+        total_layers = len(named_params)
+        
+        # Freeze all layers except the last num_layers_to_tune
+        for name, param in named_params[:total_layers - num_layers_to_tune]:
+            param.requires_grad = False
+            
+        BasePytorchModel._print_with_debug(f"Freezing {total_layers - num_layers_to_tune} layers, fine-tuning last {num_layers_to_tune} layers", debug)
+        
+        # Use existing train_model function for fine-tuning
+        self.train_model(X, y, loss_fn=loss_fn, num_epochs=num_epochs, lr=lr,
+                        optimizer_class=optimizer_class, optimizer_params=optimizer_params,
+                        batch_size=batch_size, X_val=X_val, y_val=y_val, 
+                        early_stopping=early_stopping, patience=patience,
+                        save_best_model=save_best_model, best_model_checkpoint=best_model_checkpoint,
+                        debug=debug)
+        
+        # Unfreeze all parameters for future training
+        for param in self.parameters():
+            param.requires_grad = True
+        
+        BasePytorchModel._print_with_debug("Fine-tuning complete, all parameters unfrozen", debug)
 
     def predict(self, X, **kwargs):
-        fine_tune_data = kwargs.get("fine_tune_data", None)
-        num_epochs_ft = kwargs.get("num_epochs_ft", 5)
-        lr_ft = kwargs.get("lr_ft", 1e-4)
         batch_size = kwargs.get("batch_size", 64)  # Đảm bảo batch_size có giá trị hợp lý
-        optimizer_class = kwargs.get("optimizer_class", self.optimizer_class)
-        optimizer_params = kwargs.get("optimizer_params", self.optimizer_params)
-
-        # Fine-tuning nếu có dữ liệu
-        if fine_tune_data is not None:
-            X_ft, y_ft = fine_tune_data
-            self.train_model(X_ft, y_ft, loss_fn=nn.MSELoss(), num_epochs=num_epochs_ft, lr=lr_ft, 
-                             optimizer_class=optimizer_class, optimizer_params=optimizer_params, batch_size=batch_size)
-
         self.eval()
         predictions = []
         
