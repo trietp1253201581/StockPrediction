@@ -1,0 +1,13 @@
+{
+    "DATE": "2025-05-01",
+    "GOOGLE_AI": {
+        "CALL_CNT": 0,
+        "CALL_LIMIT": 1300,
+        "MAX_TOKENS": 6000
+    },
+    "OPENROUTER": {
+        "CALL_CNT": 0,
+        "CALL_LIMIT": 150,
+        "MAX_TOKENS": 10000
+    }
+}
