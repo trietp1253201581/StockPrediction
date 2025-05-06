@@ -1,5 +1,6 @@
 from llm.llm_caller import LLM, LLMException
 from datetime import datetime
+
 GET_NEWS_PROMPT = """
 You are a financial assistant.
 
@@ -15,7 +16,7 @@ For each news item, include:
 Return the result strictly as JSON in the following format:
 
 {{
-  "results": [
+    "results": [
     {{
       "pub_date": "...",
       "summary": "...",
@@ -65,30 +66,43 @@ Notes:
 - Do not search any diffirent information and must use only the given original prediction and news.
 """
 
-def get_news(llm: LLM, ticker: str, start_date: datetime, end_date: datetime, n: int = 5) -> list[dict]:
+
+def get_news(
+    llm: LLM, ticker: str, start_date: datetime, end_date: datetime, n: int = 5
+) -> list[dict]:
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
-    prompt = GET_NEWS_PROMPT.format(n=n, ticker=ticker, start_date=start_date_str, end_date=end_date_str)
+    prompt = GET_NEWS_PROMPT.format(
+        n=n, ticker=ticker, start_date=start_date_str, end_date=end_date_str
+    )
     response = llm.get_response(prompt)
     json_res = llm.extract_response(response)
-    
+
     final_res = []
-    for res in json_res['results']:
-        final_res.append({
-            'pub_date': datetime.strptime(res['pub_date'], "%Y-%m-%d"),
-            'summary': res['summary'],
-            'type': res['type'],
-            'direct': res['direct']
-        })
-    
+    for res in json_res["results"]:
+        final_res.append(
+            {
+                "pub_date": datetime.strptime(res["pub_date"], "%Y-%m-%d"),
+                "summary": res["summary"],
+                "type": res["type"],
+                "direct": res["direct"],
+            }
+        )
+
     return final_res
 
-def adjust_prediction(llm: LLM, original_prediction: list[float], news: list[dict], start_date: datetime) -> dict:
+
+def adjust_prediction(
+    llm: LLM, original_prediction: list[float], news: list[dict], start_date: datetime
+) -> dict:
     start_date_str = start_date.strftime("%Y-%m-%d")
-    prompt = ADJUST_PREDICTION_PROMPT.format(original_prediction=original_prediction, 
-                                             news_json=news, start_date=start_date_str)
+    prompt = ADJUST_PREDICTION_PROMPT.format(
+        original_prediction=original_prediction,
+        news_json=news,
+        start_date=start_date_str,
+    )
     response = llm.get_response(prompt)
     json_res = llm.extract_response(response)
-    return json_res
-
-
+    predicted = [float(x) for x in json_res['predicted']]
+    explain = json_res['explain']
+    return predicted, explain
