@@ -1,5 +1,6 @@
 from llm.llm_caller import LLM, LLMException
 from datetime import datetime
+from typing import Literal
 
 GET_NEWS_PROMPT = """
 You are a financial assistant.
@@ -102,18 +103,27 @@ Notes:
 """
 
 class LLMPredictor:
-    def __init__(self, llm_caller: LLM):
+    def __init__(self, llm_caller: LLM, 
+                 direction_map: dict[str, float]|Literal['default']='default', 
+                 level_map: dict[str, float]|Literal['default'] = 'default'):
         self.llm_caller = llm_caller
-        self.direction_map = {
-            'positive': 1.0,
-            'neutral': 0.0,
-            'negative': -1.0
-        }
-        self.level_map = {
-            'mild': 1.0,
-            'moderate': 3.0,
-            'strong': 5.0
-        }
+        if direction_map == 'default':
+            self.direction_map = {
+                'positive': 1.0,
+                'neutral': 0.0,
+                'negative': -1.0
+            } 
+        else:
+            self.direction_map = direction_map
+        
+        if level_map == 'default':
+            self.level_map = {
+                'mild': 0.01,
+                'moderate': 0.03,
+                'strong': 0.05
+            }
+        else:
+            self.level_map = level_map
     
     def get_news(self, ticker: str, start: datetime, end: datetime, n: int = 5):
         start_date_str = start.strftime("%Y-%m-%d")
