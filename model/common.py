@@ -212,7 +212,7 @@ class BasePytorchModel(nn.Module, BaseModel):
         checkpoint = torch.load(file_path, map_location=self.device)
         self.load_state_dict(checkpoint["model_state_dict"])
         if self.optimizer is None:
-            self.init_optimizer(lr=1e-4)
+            self.init_optimizer(optimizer_class=optim.Adam, lr=1e-4)
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.last_epoch = checkpoint.get("last_epoch", 0)
         self.last_loss = checkpoint.get("last_loss", 0.0)
