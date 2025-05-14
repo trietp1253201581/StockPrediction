@@ -336,7 +336,7 @@ class LLMReflector:
                num_of_reflections: Literal['all']|int = 'all'):
         
         reflections = self._get_reflections(ticker, num_of_reflections)
-        summary = self.summary.get('ticker', 'No summary')
+        summary = self.summary.get(ticker, 'No summary')
         
         prompt = ADJUST_WITH_REFLECTION_PROMPT.format(
             ticker=ticker,
